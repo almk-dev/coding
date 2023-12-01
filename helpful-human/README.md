@@ -1,3 +1,3 @@
 # helpful-human 
 
-Interview challenge for Helpful Human
+Interview challenge submission for [Helpful Human](https://www.helpfulhuman.com/)
