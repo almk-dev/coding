@@ -10,7 +10,7 @@ import (
 
 func main() {
 	content, _ := os.ReadFile("input.txt")
-	lines := strings.Split(string(content), "\n")
+	lines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
 
 	fmt.Println("part1:", part1(lines))
 	fmt.Println("part2:", part2(lines))

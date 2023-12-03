@@ -10,7 +10,7 @@ import (
 
 func main() {
 	content, _ := os.ReadFile("input.txt")
-	lines := strings.Split(string(content), "\n")
+	lines := strings.Split(strings.TrimSuffix(string(content), "\n"), "\n")
 
 	fmt.Println("part1:", part1(lines))
 	fmt.Println("part2:", part2(lines))
@@ -79,7 +79,7 @@ func backReplace(line string, digits *map[string]int) string {
 	return line
 }
 
-func findDigits(line string) (int, int) {
+func findDigits(line string) (string, string) {
 	var first, last string
 	for _, char := range line {
 		if unicode.IsDigit(char) {
