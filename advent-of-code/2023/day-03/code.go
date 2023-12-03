@@ -28,7 +28,7 @@ func part1(lines []string) int {
 					(kstart <= spos && spos <= kend) ||
 					(kstart <= spos+1 && spos+1 <= kend) {
 					num, _ := strconv.Atoi(string(lines[kline][kstart:kend]))
-					fmt.Println("line:", kline, "number:", num)
+					//					fmt.Println("line:", kline, "number:", num)
 					total += num
 					delete(nums, key)
 				}
