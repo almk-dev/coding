@@ -17,6 +17,8 @@ func main() {
 }
 
 func part1(lines []string) int {
+	debug := make(map[int][]int)
+
 	nums, syms := parseSchematic(lines)
 	total := 0
 	for _, sym := range syms {
@@ -28,12 +30,18 @@ func part1(lines []string) int {
 					(kstart <= spos && spos <= kend) ||
 					(kstart <= spos+1 && spos+1 <= kend) {
 					num, _ := strconv.Atoi(string(lines[kline][kstart:kend]))
-					//					fmt.Println("line:", kline, "number:", num)
+
+					debug[kline] = append(debug[kline], num)
+
 					total += num
 					delete(nums, key)
 				}
 			}
 		}
+	}
+
+	for i := 1; i <= 140; i++ {
+		fmt.Println("line:", i, "numbers:", debug[i-1])
 	}
 	return total
 }
