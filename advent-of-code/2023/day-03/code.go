@@ -29,7 +29,7 @@ func part1(lines []string) int {
 				if (kstart <= spos-1 && spos-1 <= kend) ||
 					(kstart <= spos && spos <= kend) ||
 					(kstart <= spos+1 && spos+1 <= kend) {
-					num, _ := strconv.Atoi(string(lines[kline][kstart:kend]))
+					num, _ := strconv.Atoi(string(lines[kline][kstart : kend+1]))
 
 					debug[kline] = append(debug[kline], num)
 
@@ -55,11 +55,11 @@ func parseSchematic(lines []string) (nums map[[3]int]bool, syms [][2]int) {
 			if unicode.IsDigit(char) && start == -1 {
 				start = cidx
 				if cidx == len(line)-1 {
-					nums[[3]int{lidx, start, cidx + 1}] = true
+					nums[[3]int{lidx, start, cidx}] = true
 				}
 			} else if !unicode.IsDigit(char) {
 				if start != -1 {
-					nums[[3]int{lidx, start, cidx}] = true
+					nums[[3]int{lidx, start, cidx - 1}] = true
 					start = -1
 				}
 				if char != '.' {
