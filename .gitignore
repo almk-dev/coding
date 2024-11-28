@@ -5,6 +5,7 @@
 
 # testing
 /**/coverage
+/**/expected.txt
 
 # production
 /**/build
