@@ -14,7 +14,9 @@ func main() {
 	})
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		processor.ProcessQuery(scanner.Text())
+		if err := processor.ProcessQuery(scanner.Text()); err != nil {
+			fmt.Fprintln(os.Stderr, "error processing query:", err)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "error reading stdin:", err)

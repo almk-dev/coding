@@ -37,16 +37,16 @@ type interval struct {
 	end   int64
 }
 
-type cache struct {
-	countCache map[interval]int
-	buysCache  map[interval]int
-	sellsCache map[interval]int
-	volCache   map[interval]dec.Decimal
+type data struct {
+	count int
+	buys  int
+	sells int
+	vol   dec.Decimal
 }
 
 type Processor struct {
 	server *server.Server
-	cache  *cache
+	cache  map[interval]data
 }
 
 type Opts struct {
@@ -56,12 +56,7 @@ type Opts struct {
 func NewProcessor(opts Opts) *Processor {
 	return &Processor{
 		server: opts.Server,
-		cache: &cache{
-			countCache: make(map[interval]int),
-			buysCache:  make(map[interval]int),
-			sellsCache: make(map[interval]int),
-			volCache:   make(map[interval]dec.Decimal),
-		},
+		cache:  make(map[interval]data),
 	}
 }
 
@@ -70,52 +65,25 @@ func (p *Processor) ProcessQuery(query string) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse query: %w", err)
 	}
-	cacheHitIntervals, queryIntervals, staleIntervals := p.processIntervals(*queryType, *startTsInSeconds, *endTsInSeconds)
-	fmt.Println("type:", query[:1], "start:", *startTsInSeconds, "end:", *endTsInSeconds)
-	fmt.Println("hit:", cacheHitIntervals, "query:", queryIntervals, "stale:", staleIntervals)
 
-	switch *queryType {
-	case count:
-		p.processCount(cacheHitIntervals, queryIntervals, staleIntervals)
-	case buys:
-		p.processBuys(cacheHitIntervals, queryIntervals, staleIntervals)
-	case sells:
-		p.processSells(cacheHitIntervals, queryIntervals, staleIntervals)
-	case vol:
-		p.processVol(cacheHitIntervals, queryIntervals, staleIntervals)
-	}
+	cacheHitIntervals, queryIntervals, staleIntervals := p.processIntervals(*startTsInSeconds, *endTsInSeconds)
+	p.processAll(*queryType, cacheHitIntervals, queryIntervals, staleIntervals)
 
 	return nil
 }
 
 func (p *Processor) processIntervals(
-	qt queryType,
 	startTsInSeconds int64,
 	endTsInSeconds int64,
 ) ([]interval, []interval, []interval) {
 	var cacheIntervals, queryIntervals []interval
-	switch qt {
-	case count:
-		for k := range p.cache.countCache {
-			cacheIntervals = append(cacheIntervals, k)
-		}
-	case buys:
-		for k := range p.cache.buysCache {
-			cacheIntervals = append(cacheIntervals, k)
-		}
-	case sells:
-		for k := range p.cache.sellsCache {
-			cacheIntervals = append(cacheIntervals, k)
-		}
-	case vol:
-		for k := range p.cache.volCache {
-			cacheIntervals = append(cacheIntervals, k)
-		}
+	for k := range p.cache {
+		cacheIntervals = append(cacheIntervals, k)
 	}
 
 	var cacheHitIntervals []interval
 	for _, cacheInterval := range cacheIntervals {
-		if (cacheInterval.start < startTsInSeconds && cacheInterval.end <= endTsInSeconds) ||
+		if (cacheInterval.start < startTsInSeconds && cacheInterval.end <= startTsInSeconds) ||
 			(cacheInterval.start >= endTsInSeconds && cacheInterval.end > endTsInSeconds) {
 			continue
 		}
@@ -132,7 +100,7 @@ func (p *Processor) processIntervals(
 		if cacheHit.start < startTsInSeconds && cacheHit.end > endTsInSeconds {
 			staleIntervals = append(staleIntervals, cacheHit)
 			cacheHitIntervals = cacheHitIntervals[1:]
-			break
+			continue
 		}
 		if cacheHit.start < startTsInSeconds {
 			staleIntervals = append(staleIntervals, cacheHit)
@@ -166,87 +134,45 @@ func (p *Processor) processIntervals(
 	return cacheHitIntervals, queryIntervals, staleIntervals
 }
 
-func (p *Processor) processCount(cacheHitIntervals, queryIntervals, staleIntervals []interval) {
-	var totalCount int
+func (p *Processor) processAll(qt queryType, cacheHitIntervals, queryIntervals, staleIntervals []interval) {
+	totalData := data{}
 	for _, interval := range cacheHitIntervals {
-		totalCount += p.cache.countCache[interval]
+		totalData.count += p.cache[interval].count
+		totalData.buys += p.cache[interval].buys
+		totalData.sells += p.cache[interval].sells
+		totalData.vol = totalData.vol.Add(p.cache[interval].vol)
 	}
 
 	for _, interval := range queryIntervals {
+		queryData := data{}
 		fills := p.server.GetFillsAPI(interval.start, interval.end)
-		seen := make(map[uint64]struct{})
+		seenCount, seenBuys, seenSells := make(set), make(set), make(set)
+
 		for _, fill := range fills {
-			if _, ok := seen[fill.SequenceNumber]; !ok {
-				seen[fill.SequenceNumber] = exists
-				totalCount++
+			if _, ok := seenCount[fill.SequenceNumber]; !ok {
+				seenCount[fill.SequenceNumber] = exists
+				queryData.count++
 			}
-		}
-		p.updateCache(count, interval, &totalCount, nil, staleIntervals)
-	}
-
-	fmt.Println(totalCount)
-}
-
-func (p *Processor) processBuys(cacheHitIntervals, queryIntervals, staleIntervals []interval) {
-	var totalBuys int
-	for _, interval := range cacheHitIntervals {
-		totalBuys += p.cache.buysCache[interval]
-	}
-
-	fmt.Println(totalBuys)
-
-	for _, interval := range queryIntervals {
-		fills := p.server.GetFillsAPI(interval.start, interval.end)
-		seen := make(set)
-		for _, fill := range fills {
-			if _, ok := seen[fill.SequenceNumber]; !ok && fill.Direction > 0 {
-				seen[fill.SequenceNumber] = exists
-				totalBuys++
+			if _, ok := seenBuys[fill.SequenceNumber]; !ok && fill.Direction > 0 {
+				seenBuys[fill.SequenceNumber] = exists
+				queryData.buys++
 			}
-		}
-		p.updateCache(buys, interval, &totalBuys, nil, staleIntervals)
-		fmt.Println(totalBuys)
-	}
-
-	fmt.Println(totalBuys)
-}
-
-func (p *Processor) processSells(cacheHitIntervals, queryIntervals, staleIntervals []interval) {
-	var totalSells int
-	for _, interval := range cacheHitIntervals {
-		totalSells += p.cache.sellsCache[interval]
-	}
-
-	for _, interval := range queryIntervals {
-		fills := p.server.GetFillsAPI(interval.start, interval.end)
-		seen := make(map[uint64]struct{})
-		for _, fill := range fills {
-			if _, ok := seen[fill.SequenceNumber]; !ok && fill.Direction < 0 {
-				seen[fill.SequenceNumber] = exists
-				totalSells++
+			if _, ok := seenSells[fill.SequenceNumber]; !ok && fill.Direction < 0 {
+				seenSells[fill.SequenceNumber] = exists
+				queryData.sells++
 			}
+			queryData.vol = queryData.vol.Add(fill.Price.Mul(fill.Quantity))
 		}
-		p.updateCache(sells, interval, &totalSells, nil, staleIntervals)
+
+		totalData.count += queryData.count
+		totalData.buys += queryData.buys
+		totalData.sells += queryData.sells
+		totalData.vol = totalData.vol.Add(queryData.vol)
+
+		p.updateCache(interval, queryData, staleIntervals)
 	}
 
-	fmt.Println(totalSells)
-}
-
-func (p *Processor) processVol(cacheHitIntervals, queryIntervals, staleIntervals []interval) {
-	var totalVol dec.Decimal
-	for _, interval := range cacheHitIntervals {
-		totalVol = totalVol.Add(p.cache.volCache[interval])
-	}
-
-	for _, interval := range queryIntervals {
-		fills := p.server.GetFillsAPI(interval.start, interval.end)
-		for _, fill := range fills {
-			totalVol = totalVol.Add(fill.Price.Mul(fill.Quantity))
-		}
-		p.updateCache(vol, interval, nil, &totalVol, staleIntervals)
-	}
-
-	fmt.Println(totalVol)
+	p.writeOutput(qt, totalData)
 }
 
 func (p *Processor) parseQuery(query string) (*queryType, *int64, *int64, error) {
@@ -275,16 +201,14 @@ func (p *Processor) parseQuery(query string) (*queryType, *int64, *int64, error)
 }
 
 func (p *Processor) updateCache(
-	qt queryType,
 	newInterval interval,
-	totalInt *int,
-	totalDec *dec.Decimal,
+	newData data,
 	staleIntervals []interval,
 ) {
 	for _, stale := range staleIntervals {
 		var refreshInterval interval
 		if stale.start < newInterval.start && stale.end > newInterval.end {
-			delete(p.cache.countCache, stale)
+			delete(p.cache, stale)
 			break
 		} else if stale.start < newInterval.start && stale.end == newInterval.end {
 			refreshInterval = interval{start: stale.start, end: newInterval.start}
@@ -294,30 +218,27 @@ func (p *Processor) updateCache(
 			continue
 		}
 
-		switch qt {
-		case count:
-			p.cache.countCache[refreshInterval] = p.cache.countCache[stale] - *totalInt
-			delete(p.cache.countCache, stale)
-		case buys:
-			p.cache.buysCache[refreshInterval] = p.cache.buysCache[stale] - *totalInt
-			delete(p.cache.buysCache, stale)
-		case sells:
-			p.cache.sellsCache[refreshInterval] = p.cache.sellsCache[stale] - *totalInt
-			delete(p.cache.sellsCache, stale)
-		case vol:
-			p.cache.volCache[refreshInterval] = p.cache.volCache[stale].Sub(*totalDec)
-			delete(p.cache.volCache, stale)
+		p.cache[refreshInterval] = data{
+			count: p.cache[stale].count - newData.count,
+			buys:  p.cache[stale].buys - newData.buys,
+			sells: p.cache[stale].sells - newData.sells,
+			vol:   p.cache[stale].vol.Sub(newData.vol),
 		}
+		delete(p.cache, stale)
 	}
 
+	p.cache[newInterval] = newData
+}
+
+func (p *Processor) writeOutput(qt queryType, totalData data) {
 	switch qt {
 	case count:
-		p.cache.countCache[newInterval] = *totalInt
+		fmt.Println(totalData.count)
 	case buys:
-		p.cache.buysCache[newInterval] = *totalInt
+		fmt.Println(totalData.buys)
 	case sells:
-		p.cache.sellsCache[newInterval] = *totalInt
+		fmt.Println(totalData.sells)
 	case vol:
-		p.cache.volCache[newInterval] = *totalDec
+		fmt.Println(totalData.vol)
 	}
 }
