@@ -23,7 +23,7 @@ type Fill struct {
 }
 
 type Server struct {
-	fills []*Fill
+	fills []Fill
 }
 
 func NewServer() *Server {
@@ -32,9 +32,9 @@ func NewServer() *Server {
 	records := must(csv.NewReader(file).ReadAll())
 
 	// successful init is required, so we panic if anything goes wrong
-	var fills []*Fill
+	var fills []Fill
 	for _, record := range records[1:] {
-		fill := &Fill{
+		fill := Fill{
 			Time:           must(time.Parse(dateFmt, record[0])).UTC(),
 			Direction:      must(strconv.Atoi(record[1])),
 			Price:          must(dec.NewFromString(record[2])),
@@ -49,7 +49,7 @@ func NewServer() *Server {
 	}
 }
 
-func (s *Server) GetFillsAPI(startTsInSeconds int64, endTsInSeconds int64) []*Fill {
+func (s *Server) GetFillsAPI(startTsInSeconds int64, endTsInSeconds int64) []Fill {
 	startTime := time.Unix(startTsInSeconds, 0).UTC()
 	endTime := time.Unix(endTsInSeconds, 0).UTC()
 
@@ -58,7 +58,7 @@ func (s *Server) GetFillsAPI(startTsInSeconds int64, endTsInSeconds int64) []*Fi
 	sleepTime := time.Duration(intervalLen * float64(time.Second) * approxSecToDay)
 	time.Sleep(sleepTime)
 
-	var result []*Fill
+	var result []Fill
 	for _, fill := range s.fills {
 		if fill.Time.After(startTime) && fill.Time.Compare(endTime) <= 0 {
 			result = append(result, fill)
