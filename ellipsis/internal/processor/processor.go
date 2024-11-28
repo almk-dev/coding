@@ -70,17 +70,19 @@ func (p *Processor) ProcessQuery(query string) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse query: %w", err)
 	}
-	cacheHitIntervals, queryIntervals := p.processIntervals(*queryType, *startTsInSeconds, *endTsInSeconds)
+	cacheHitIntervals, queryIntervals, staleIntervals := p.processIntervals(*queryType, *startTsInSeconds, *endTsInSeconds)
+	fmt.Println("type:", query[:1], "start:", *startTsInSeconds, "end:", *endTsInSeconds)
+	fmt.Println("hit:", cacheHitIntervals, "query:", queryIntervals, "stale:", staleIntervals)
 
 	switch *queryType {
 	case count:
-		p.processCount(cacheHitIntervals, queryIntervals)
+		p.processCount(cacheHitIntervals, queryIntervals, staleIntervals)
 	case buys:
-		p.processBuys(cacheHitIntervals, queryIntervals)
+		p.processBuys(cacheHitIntervals, queryIntervals, staleIntervals)
 	case sells:
-		p.processSells(cacheHitIntervals, queryIntervals)
+		p.processSells(cacheHitIntervals, queryIntervals, staleIntervals)
 	case vol:
-		p.processVol(cacheHitIntervals, queryIntervals)
+		p.processVol(cacheHitIntervals, queryIntervals, staleIntervals)
 	}
 
 	return nil
@@ -90,7 +92,7 @@ func (p *Processor) processIntervals(
 	qt queryType,
 	startTsInSeconds int64,
 	endTsInSeconds int64,
-) ([]interval, []interval) {
+) ([]interval, []interval, []interval) {
 	var cacheIntervals, queryIntervals []interval
 	switch qt {
 	case count:
@@ -111,32 +113,41 @@ func (p *Processor) processIntervals(
 		}
 	}
 
-	var cacheHits []interval
+	var cacheHitIntervals []interval
 	for _, cacheInterval := range cacheIntervals {
-		if cacheInterval.start >= startTsInSeconds && cacheInterval.end <= endTsInSeconds {
-			cacheHits = append(cacheHits, cacheInterval)
-		} else if startTsInSeconds < cacheInterval.start && endTsInSeconds > cacheInterval.start && endTsInSeconds <= cacheInterval.end {
-			cacheHits = append(cacheHits, cacheInterval)
-		} else if startTsInSeconds >= cacheInterval.start && startTsInSeconds < cacheInterval.end && endTsInSeconds > cacheInterval.end {
-			queryIntervals = append(queryIntervals, interval{start: cacheInterval.start, end: endTsInSeconds})
+		if (cacheInterval.start < startTsInSeconds && cacheInterval.end <= endTsInSeconds) ||
+			(cacheInterval.start >= endTsInSeconds && cacheInterval.end > endTsInSeconds) {
+			continue
 		}
+		cacheHitIntervals = append(cacheHitIntervals, cacheInterval)
 	}
 
-	sort.Slice(cacheHits, func(i, j int) bool {
-		return cacheHits[i].start < cacheHits[j].start
+	sort.Slice(cacheHitIntervals, func(i, j int) bool {
+		return cacheHitIntervals[i].start < cacheHitIntervals[j].start
 	})
 
-	var last int64
-	for _, cacheHit := range cacheHits {
+	var last int64 = startTsInSeconds
+	var staleIntervals []interval
+	for _, cacheHit := range cacheHitIntervals {
+		if cacheHit.start < startTsInSeconds && cacheHit.end > endTsInSeconds {
+			staleIntervals = append(staleIntervals, cacheHit)
+			cacheHitIntervals = cacheHitIntervals[1:]
+			break
+		}
 		if cacheHit.start < startTsInSeconds {
+			staleIntervals = append(staleIntervals, cacheHit)
 			queryIntervals = append(queryIntervals, interval{start: startTsInSeconds, end: cacheHit.end})
-			cacheHits = cacheHits[1:]
+			cacheHitIntervals = cacheHitIntervals[1:]
 			last = cacheHit.end
 			continue
 		}
 		if cacheHit.end > endTsInSeconds {
-			queryIntervals = append(queryIntervals, interval{start: last, end: endTsInSeconds})
-			cacheHits = cacheHits[:len(cacheHits)-1]
+			staleIntervals = append(staleIntervals, cacheHit)
+			if cacheHit.start > last {
+				queryIntervals = append(queryIntervals, interval{start: last, end: cacheHit.start})
+			}
+			cacheHitIntervals = cacheHitIntervals[:len(cacheHitIntervals)-1]
+			last = cacheHit.start
 			continue
 		}
 		if cacheHit.start > last {
@@ -145,14 +156,17 @@ func (p *Processor) processIntervals(
 		last = cacheHit.end
 	}
 
-	if len(queryIntervals) == 0 && len(cacheHits) == 0 {
+	if last < endTsInSeconds {
+		queryIntervals = append(queryIntervals, interval{start: last, end: endTsInSeconds})
+	}
+	if len(queryIntervals) == 0 && len(cacheHitIntervals) == 0 {
 		queryIntervals = append(queryIntervals, interval{start: startTsInSeconds, end: endTsInSeconds})
 	}
 
-	return cacheHits, queryIntervals
+	return cacheHitIntervals, queryIntervals, staleIntervals
 }
 
-func (p *Processor) processCount(cacheHitIntervals, queryIntervals []interval) {
+func (p *Processor) processCount(cacheHitIntervals, queryIntervals, staleIntervals []interval) {
 	var totalCount int
 	for _, interval := range cacheHitIntervals {
 		totalCount += p.cache.countCache[interval]
@@ -167,17 +181,19 @@ func (p *Processor) processCount(cacheHitIntervals, queryIntervals []interval) {
 				totalCount++
 			}
 		}
-		p.updateCache(count, interval, &totalCount, nil)
+		p.updateCache(count, interval, &totalCount, nil, staleIntervals)
 	}
 
 	fmt.Println(totalCount)
 }
 
-func (p *Processor) processBuys(cacheHitIntervals, queryIntervals []interval) {
+func (p *Processor) processBuys(cacheHitIntervals, queryIntervals, staleIntervals []interval) {
 	var totalBuys int
 	for _, interval := range cacheHitIntervals {
 		totalBuys += p.cache.buysCache[interval]
 	}
+
+	fmt.Println(totalBuys)
 
 	for _, interval := range queryIntervals {
 		fills := p.server.GetFillsAPI(interval.start, interval.end)
@@ -188,13 +204,14 @@ func (p *Processor) processBuys(cacheHitIntervals, queryIntervals []interval) {
 				totalBuys++
 			}
 		}
-		p.updateCache(buys, interval, &totalBuys, nil)
+		p.updateCache(buys, interval, &totalBuys, nil, staleIntervals)
+		fmt.Println(totalBuys)
 	}
 
 	fmt.Println(totalBuys)
 }
 
-func (p *Processor) processSells(cacheHitIntervals, queryIntervals []interval) {
+func (p *Processor) processSells(cacheHitIntervals, queryIntervals, staleIntervals []interval) {
 	var totalSells int
 	for _, interval := range cacheHitIntervals {
 		totalSells += p.cache.sellsCache[interval]
@@ -209,13 +226,13 @@ func (p *Processor) processSells(cacheHitIntervals, queryIntervals []interval) {
 				totalSells++
 			}
 		}
-		p.updateCache(sells, interval, &totalSells, nil)
+		p.updateCache(sells, interval, &totalSells, nil, staleIntervals)
 	}
 
 	fmt.Println(totalSells)
 }
 
-func (p *Processor) processVol(cacheHitIntervals, queryIntervals []interval) {
+func (p *Processor) processVol(cacheHitIntervals, queryIntervals, staleIntervals []interval) {
 	var totalVol dec.Decimal
 	for _, interval := range cacheHitIntervals {
 		totalVol = totalVol.Add(p.cache.volCache[interval])
@@ -226,7 +243,7 @@ func (p *Processor) processVol(cacheHitIntervals, queryIntervals []interval) {
 		for _, fill := range fills {
 			totalVol = totalVol.Add(fill.Price.Mul(fill.Quantity))
 		}
-		p.updateCache(vol, interval, nil, &totalVol)
+		p.updateCache(vol, interval, nil, &totalVol, staleIntervals)
 	}
 
 	fmt.Println(totalVol)
@@ -259,18 +276,48 @@ func (p *Processor) parseQuery(query string) (*queryType, *int64, *int64, error)
 
 func (p *Processor) updateCache(
 	qt queryType,
-	interval interval,
+	newInterval interval,
 	totalInt *int,
 	totalDec *dec.Decimal,
+	staleIntervals []interval,
 ) {
+	for _, stale := range staleIntervals {
+		var refreshInterval interval
+		if stale.start < newInterval.start && stale.end > newInterval.end {
+			delete(p.cache.countCache, stale)
+			break
+		} else if stale.start < newInterval.start && stale.end == newInterval.end {
+			refreshInterval = interval{start: stale.start, end: newInterval.start}
+		} else if stale.start == newInterval.start && stale.end > newInterval.end {
+			refreshInterval = interval{start: newInterval.end, end: stale.end}
+		} else {
+			continue
+		}
+
+		switch qt {
+		case count:
+			p.cache.countCache[refreshInterval] = p.cache.countCache[stale] - *totalInt
+			delete(p.cache.countCache, stale)
+		case buys:
+			p.cache.buysCache[refreshInterval] = p.cache.buysCache[stale] - *totalInt
+			delete(p.cache.buysCache, stale)
+		case sells:
+			p.cache.sellsCache[refreshInterval] = p.cache.sellsCache[stale] - *totalInt
+			delete(p.cache.sellsCache, stale)
+		case vol:
+			p.cache.volCache[refreshInterval] = p.cache.volCache[stale].Sub(*totalDec)
+			delete(p.cache.volCache, stale)
+		}
+	}
+
 	switch qt {
 	case count:
-		p.cache.countCache[interval] = *totalInt
+		p.cache.countCache[newInterval] = *totalInt
 	case buys:
-		p.cache.buysCache[interval] = *totalInt
+		p.cache.buysCache[newInterval] = *totalInt
 	case sells:
-		p.cache.sellsCache[interval] = *totalInt
+		p.cache.sellsCache[newInterval] = *totalInt
 	case vol:
-		p.cache.volCache[interval] = *totalDec
+		p.cache.volCache[newInterval] = *totalDec
 	}
 }
