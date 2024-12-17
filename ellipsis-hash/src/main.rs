@@ -28,7 +28,7 @@ impl Hash {
 }
 
 // Toy hash function
-fn hashv(bytes: &[&[u8]]) -> Hash {
+fn hashv_toy(bytes: &[&[u8]]) -> Hash {
     let mut hasher = DefaultHasher::new();
     for val in bytes {
         hasher.write(val);
@@ -45,6 +45,18 @@ fn hashv(bytes: &[&[u8]]) -> Hash {
 
     let mut hash = [0u8; 32];
     hash.copy_from_slice(&res);
+    Hash(hash)
+}
+
+fn hashv(bytes: &[&[u8]]) -> Hash {
+    let mut hasher = Blake3Hasher::new();
+    for val in bytes {
+        hasher.update(val);
+    }
+    let res = hasher.finalize();
+
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(res.as_bytes());
     Hash(hash)
 }
 
