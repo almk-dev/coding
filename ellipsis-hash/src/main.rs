@@ -12,7 +12,7 @@ Indexing from 1 was chosen because the index math to find any node's parent, sib
 use std::collections::VecDeque;
 use std::hash::{DefaultHasher, Hasher};
 use std::iter::FromIterator;
-use blake3::Hasher as Blake3Hasher;
+use blake3;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Hash([u8; 32]);
@@ -28,6 +28,7 @@ impl Hash {
 }
 
 // Toy hash function
+#[allow(dead_code)]
 fn hashv_toy(bytes: &[&[u8]]) -> Hash {
     let mut hasher = DefaultHasher::new();
     for val in bytes {
@@ -49,15 +50,15 @@ fn hashv_toy(bytes: &[&[u8]]) -> Hash {
 }
 
 fn hashv(bytes: &[&[u8]]) -> Hash {
-    let mut hasher = Blake3Hasher::new();
-    for val in bytes {
-        hasher.update(val);
-    }
-    let res = hasher.finalize();
+    let hash = blake3::hash(bytes.concat().as_ref());
+    Hash(hash.into())
 
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(res.as_bytes());
-    Hash(hash)
+    // let mut hasher = blake3::Hasher::new();
+    // for val in bytes {
+    //     hasher.update(val);
+    // }
+    // let hash = hasher.finalize();
+    // Hash(hash.into())
 }
 
 /// Binary merkle tree that is 1-indexed and is constructed out of leaves equal to a power of two.
@@ -128,11 +129,15 @@ impl BinaryMerkleTree {
         }
     }
 
-    /// Insert a leaf and propogate updates to all ancestors.
+    /// Update a leaf and propogate updates to all ancestors.
     /// Leaf index input is 0-indexed where the first leaf is index 0
     /// Leaf_index input should be 0-indexed where the first leaf would be entered as index 0
-    pub fn insert_leaf(&mut self, leaf_index: usize, leaf_hash: Hash) {
+    pub fn update_leaf(&mut self, leaf_index: usize, leaf_hash: Hash) {
         let real_leaf_index = leaf_index + self.num_leaves();
+        if self.tree[real_leaf_index].to_bytes() == leaf_hash.to_bytes() {
+            println!("No change");
+            return;
+        }
         self.tree[real_leaf_index] = leaf_hash;
 
         let mut current_index = real_leaf_index;
@@ -246,15 +251,25 @@ impl BinaryMerkleTree {
 
 fn main() {
     let leaves = vec![
-        Hash([b'A'; 32]),
-        Hash([b'B'; 32]),
-        Hash([b'C'; 32]),
-        Hash([b'D'; 32]),
+        hashv(&[&[b'A'; 32]]),
+        hashv(&[&[b'B'; 32]]),
+        hashv(&[&[b'C'; 32]]),
+        hashv(&[&[b'D'; 32]]),
     ];
     let mut tree = BinaryMerkleTree::new_from_leaves(leaves);
     println!("{:?}", tree.root());
-
-    tree.insert_leaf(0, Hash([b'E'; 32]));
-
+    tree.update_leaf(0, hashv(&[&[b'X'; 32]]),);
     println!("{:?}", tree.root());
+
+    let leaves = vec![
+        hashv(&[&[b'X'; 32]]),
+        hashv(&[&[b'B'; 32]]),
+        hashv(&[&[b'C'; 32]]),
+        hashv(&[&[b'D'; 32]]),
+    ];
+    let tree = BinaryMerkleTree::new_from_leaves(leaves);
+    println!("{:?}", tree.root());
+
+    let b3hash = hashv(&[&[b'A'; 32], &[b'B'; 32], &[b'C'; 32], &[b'D'; 32]]);
+    println!("BLAKE3: {:?}", b3hash);
 }
