@@ -168,7 +168,8 @@ impl Output {
     }
 }
 
-struct ChunkState {
+#[derive(Clone)]
+pub struct ChunkState {
     chaining_value: [u32; 8],
     chunk_counter: u64,
     block: [u8; BLOCK_LEN],
@@ -178,7 +179,7 @@ struct ChunkState {
 }
 
 impl ChunkState {
-    fn new(key_words: [u32; 8], chunk_counter: u64, flags: u32) -> Self {
+    pub fn new(key_words: [u32; 8], chunk_counter: u64, flags: u32) -> Self {
         Self {
             chaining_value: key_words,
             chunk_counter,
@@ -201,7 +202,7 @@ impl ChunkState {
         }
     }
 
-    fn update(&mut self, mut input: &[u8]) {
+    pub fn update(&mut self, mut input: &[u8]) {
         while !input.is_empty() {
             // If the block buffer is full, compress it and clear it. More
             // input is coming, so this compression is not CHUNK_END.
@@ -228,8 +229,8 @@ impl ChunkState {
             input = &input[take..];
         }
     }
+    pub fn output(&self) -> Output {
 
-    fn output(&self) -> Output {
         let mut block_words = [0; 16];
         words_from_little_endian_bytes(&self.block, &mut block_words);
         Output {
@@ -266,6 +267,8 @@ pub fn parent_cv(
     key_words: [u32; 8],
     flags: u32,
 ) -> [u32; 8] {
+    // println!("l_cv: {:?}", left_child_cv);
+    // println!("r_cv: {:?}", right_child_cv);
     parent_output(left_child_cv, right_child_cv, key_words, flags).chaining_value()
 }
 
@@ -322,6 +325,9 @@ impl Hasher {
 
     /// Add input to the hash state. This can be called any number of times.
     pub fn update(&mut self, mut input: &[u8]) {
+        // input_len = intput.len()
+        // let want = CHUNK_LEN - self.chunk_state.len();
+
         while !input.is_empty() {
             // If the current chunk is complete, finalize it and reset the
             // chunk state. More input is coming, so this chunk is not ROOT.

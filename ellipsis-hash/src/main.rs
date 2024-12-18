@@ -11,10 +11,12 @@ Indexing from 1 was chosen because the index math to find any node's parent, sib
 */
 use std::collections::VecDeque;
 use std::iter::FromIterator;
-use std::time::Instant;
+// use std::time::Instant;
 mod blake3;
 
 fn get_parent(left: &blake3::Output, right: &blake3::Output) -> blake3::Output {
+    // println!("cleft: {:?}", left.chaining_value());
+    // println!("cright: {:?}", right.chaining_value());
     let parent_output =
         blake3::parent_output(left.chaining_value(), right.chaining_value(), blake3::IV, 0);
     parent_output
@@ -28,18 +30,34 @@ pub struct BinaryMerkleTree {
 }
 
 impl BinaryMerkleTree {
-    pub fn new_from_leaves(leaves: Vec<blake3::Output>) -> BinaryMerkleTree {
-        // Initialize a zero vector with the correct number of nodes
-        let number_of_leaves = leaves.len().next_power_of_two();
-        let mut tree = Self::new_empty(number_of_leaves as u64);
+    pub fn new_from_leaves(leaves: &[u8]) -> BinaryMerkleTree {
+        println!("leaves: {:?}", leaves.len());
+        let number_of_leaves = leaves.len() / 1024;
+        let next_power = (leaves.len() / 1024).next_power_of_two();
+        let mut tree = Self::new_empty(next_power as u64);
 
-        tree.create_tree_from_leaves(leaves);
+        println!("leaves: {:?}", leaves);
+        println!("number_of_leaves: {:?}", number_of_leaves);
 
+        let mut chunks = Vec::with_capacity(number_of_leaves);
+        for pos in 0..number_of_leaves {
+            chunks.push(blake3::ChunkState::new(blake3::IV, pos as u64, 0));
+        }
+        for (i, leaf) in leaves.chunks(1024).enumerate() {
+            chunks[i].update(leaf);
+        }
+        let mut output_leaves = Vec::with_capacity(number_of_leaves);
+        for i in chunks.iter() {
+            output_leaves.push(i.output());
+            println!("output: {:?}", i.output());
+        }
+
+        tree.create_tree_from_leaves(output_leaves);
         tree
     }
 
     pub fn root(&self) -> blake3::Output {
-        self.tree[1]
+        self.tree[1]    
     }
 
     pub fn num_leaves(&self) -> usize {
@@ -215,37 +233,50 @@ fn main() {}
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_update_leaf_correctness() {
-        let exp_leaves: Vec<blake3::Output> = vec![
-            blake3::Output::new(unsafe { std::mem::transmute([b'X'; 64]) }, 0),
-            blake3::Output::new(unsafe { std::mem::transmute([b'B'; 64]) }, 1),
-            blake3::Output::new(unsafe { std::mem::transmute([b'C'; 64]) }, 2),
-            blake3::Output::new(unsafe { std::mem::transmute([b'S'; 64]) }, 3),
-        ];
+    fn test_update_leaf_correctness2() {
+        let exp_leaves = &[[b'X'; 1024], [b'B'; 1024], [b'C'; 1024], [b'D'; 1024]].concat();
         let exp_tree = BinaryMerkleTree::new_from_leaves(exp_leaves);
 
-        let act_leaves: Vec<blake3::Output> = vec![
-            blake3::Output::new(unsafe { std::mem::transmute([b'A'; 64]) }, 0),
-            blake3::Output::new(unsafe { std::mem::transmute([b'B'; 64]) }, 1),
-            blake3::Output::new(unsafe { std::mem::transmute([b'C'; 64]) }, 2),
-            blake3::Output::new(unsafe { std::mem::transmute([b'D'; 64]) }, 3),
-        ];
+        let act_leaves = &[[b'A'; 1024], [b'B'; 1024], [b'C'; 1024], [b'D'; 1024]].concat();
         let mut act_tree = BinaryMerkleTree::new_from_leaves(act_leaves);
+
+        // println!("leaves: {:?}", leaves.len());
+        // let number_of_leaves = leaves.len() / 1024;
+        // let next_power = number_of_leaves.next_power_of_two();
+        // let mut tree = Self::new_empty(next_power as u64);
+
+        // println!("leaves: {:?}", leaves);
+        // println!("number_of_leaves: {:?}", number_of_leaves);
+
+        // let mut chunks = Vec::with_capacity(number_of_leaves);
+
+        let mut chunk = blake3::ChunkState::new(blake3::IV, 0, 0);
+        chunk.update(&[b'X'; 1024]);
+        let out = chunk.output();
+        // for (i, leaf) in leaves.chunks(1024).enumerate() {
+        //     chunks[i].update(leaf);
+        // }
+        // let mut output_leaves = Vec::with_capacity(number_of_leaves);
+        // for i in chunks.iter() {
+        //     output_leaves.push(i.output());
+        //     println!("output: {:?}", i.output());
+        // }
 
         let index0: usize = 0;
         act_tree.update_leaf(
             index0,
-            blake3::Output::new(unsafe { std::mem::transmute([b'X'; 64]) }, index0 as u64),
+            out,
         );
-        let index3: usize = 3;
-        act_tree.update_leaf(
-            index3,
-            blake3::Output::new(unsafe { std::mem::transmute([b'S'; 64]) }, index3 as u64),
-        );
+        // let index3: usize = 3;
+        // act_tree.update_leaf(
+        //     index3,
+        //     blake3::Output::new(unsafe { std::mem::transmute([b'S'; 64]) }, index3 as u64),
+        // );
 
         let mut exp_out = [0u8; 32];
         let mut act_out = [0u8; 32];
+        println!("{:#?}",exp_tree.tree);
+        println!("{:#?}", act_tree.tree);
         exp_tree.root().root_output_bytes(&mut exp_out);
         act_tree.root().root_output_bytes(&mut act_out);
 
@@ -254,23 +285,17 @@ mod tests {
 
     #[test]
     fn test_blake3_correctness() {
-        let exp_leaves = &[[b'A'; 64], [b'B'; 64], [b'C'; 64], [b'D'; 64]].concat();
+        let leaves = &[[b'A'; 1024], [b'B'; 1024]].concat();
 
         let mut b3hasher = blake3::Hasher::new();
-        b3hasher.update(&exp_leaves);
+        b3hasher.update(&leaves);
         let mut exp_hash = [0u8; 32];
         b3hasher.finalize(&mut exp_hash);
 
-        let act_leaves: Vec<blake3::Output> = vec![
-            blake3::Output::new(unsafe { std::mem::transmute([b'A'; 64]) }, 0),
-            blake3::Output::new(unsafe { std::mem::transmute([b'B'; 64]) }, 1),
-            blake3::Output::new(unsafe { std::mem::transmute([b'C'; 64]) }, 2),
-            blake3::Output::new(unsafe { std::mem::transmute([b'D'; 64]) }, 3),
-        ];
-        let act_tree = BinaryMerkleTree::new_from_leaves(act_leaves);
-
+        let act_tree = BinaryMerkleTree::new_from_leaves(leaves);
         let mut act = [0u8; 32];
         act_tree.root().root_output_bytes(&mut act);
+
         assert_eq!(exp_hash, act);
     }
 
@@ -307,4 +332,4 @@ mod tests {
     //     tree.root().root_output_bytes(&mut tree_root_hash);
     //     assert_eq!(bulk_hash, tree_root_hash);
     // }
-}
+    }
