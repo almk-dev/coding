@@ -11,6 +11,7 @@ Indexing from 1 was chosen because the index math to find any node's parent, sib
 */
 use std::collections::VecDeque;
 use std::iter::FromIterator;
+use std::time::Instant;
 mod blake3;
 
 fn get_parent(left: &blake3::Output, right: &blake3::Output) -> blake3::Output {
@@ -272,4 +273,38 @@ mod tests {
         act_tree.root().root_output_bytes(&mut act);
         assert_eq!(exp_hash, act);
     }
+
+    // #[test]
+    // fn test_bulk_update_performance() {
+    //     let num_updates = 10000;
+    //     let leaves: Vec<blake3::Output> = (0..num_updates)
+    //         .map(|i| blake3::Output::new(unsafe { std::mem::transmute([i as u8; 64]) }, i as u64))
+    //         .collect();
+
+    //     // Measure time for bulk hashing using blake3 hasher
+    //     let start = Instant::now();
+    //     let mut b3hasher = blake3::Hasher::new();
+    //     for leaf in &leaves {
+    //         let new: [u8; 32] = unsafe { std::mem::transmute( leaf.chaining_value() ) };
+    //         b3hasher.update(&new);
+    //     }
+    //     let mut bulk_hash = [0u8; 32];
+    //     b3hasher.finalize(&mut bulk_hash);
+    //     let bulk_duration = start.elapsed();
+
+    //     // Measure time for incremental updates using BinaryMerkleTree
+    //     let mut tree = BinaryMerkleTree::new_from_leaves(leaves.clone());
+    //     let start = Instant::now();
+    //     for (i, leaf) in leaves.iter().enumerate() {
+    //         tree.update_leaf(i, *leaf);
+    //     }
+    //     let incremental_duration = start.elapsed();
+
+    //     assert!(incremental_duration < bulk_duration);
+
+    //     // Ensure the root hash is the same
+    //     let mut tree_root_hash = [0u8; 32];
+    //     tree.root().root_output_bytes(&mut tree_root_hash);
+    //     assert_eq!(bulk_hash, tree_root_hash);
+    // }
 }
