@@ -10,66 +10,24 @@ Indexing from 1 was chosen because the index math to find any node's parent, sib
 
 */
 use std::collections::VecDeque;
-use std::hash::{DefaultHasher, Hasher};
 use std::iter::FromIterator;
-use blake3;
+mod blake3;
 
-#[derive(Debug, Clone, Copy)]
-pub struct Hash([u8; 32]);
-
-impl Hash {
-    fn new(src: &[u8; 32]) -> Self {
-        Self(*src)
-    }
-
-    pub fn to_bytes(&self) -> [u8; 32] {
-        self.0
-    }
-}
-
-// Toy hash function
-#[allow(dead_code)]
-fn hashv_toy(bytes: &[&[u8]]) -> Hash {
-    let mut hasher = DefaultHasher::new();
-    for val in bytes {
-        hasher.write(val);
-    }
-    let x1 = hasher.finish().to_le_bytes();
-    hasher.write(&x1);
-    let x2 = hasher.finish().to_le_bytes();
-    hasher.write(&x2);
-    let x3 = hasher.finish().to_le_bytes();
-    hasher.write(&x3);
-    let x4 = hasher.finish().to_le_bytes();
-
-    let res = [x1, x2, x3, x4].concat();
-
-    let mut hash = [0u8; 32];
-    hash.copy_from_slice(&res);
-    Hash(hash)
-}
-
-fn hashv(bytes: &[&[u8]]) -> Hash {
-    let hash = blake3::hash(bytes.concat().as_ref());
-    Hash(hash.into())
-
-    // let mut hasher = blake3::Hasher::new();
-    // for val in bytes {
-    //     hasher.update(val);
-    // }
-    // let hash = hasher.finalize();
-    // Hash(hash.into())
+fn get_parent(left: &blake3::Output, right: &blake3::Output) -> blake3::Output {
+    let parent_output =
+        blake3::parent_output(left.chaining_value(), right.chaining_value(), blake3::IV, 0);
+    parent_output
 }
 
 /// Binary merkle tree that is 1-indexed and is constructed out of leaves equal to a power of two.
 /// If the number of leaves is not a power of two, add zero nodes until the number of leaves is a power of two.
 #[derive(Debug, Clone)]
 pub struct BinaryMerkleTree {
-    pub tree: Vec<Hash>,
+    pub tree: Vec<blake3::Output>,
 }
 
 impl BinaryMerkleTree {
-    pub fn new_from_leaves(leaves: Vec<Hash>) -> BinaryMerkleTree {
+    pub fn new_from_leaves(leaves: Vec<blake3::Output>) -> BinaryMerkleTree {
         // Initialize a zero vector with the correct number of nodes
         let number_of_leaves = leaves.len().next_power_of_two();
         let mut tree = Self::new_empty(number_of_leaves as u64);
@@ -79,7 +37,7 @@ impl BinaryMerkleTree {
         tree
     }
 
-    pub fn root(&self) -> Hash {
+    pub fn root(&self) -> blake3::Output {
         self.tree[1]
     }
 
@@ -93,7 +51,8 @@ impl BinaryMerkleTree {
 
     pub fn new_empty(number_of_leaves: u64) -> Self {
         assert!(number_of_leaves.is_power_of_two());
-        let tree: Vec<Hash> = vec![Hash::new(&[0; 32]); 2 * number_of_leaves as usize]; // We don't subtract one because the tree is 1-indexed
+        let tree: Vec<blake3::Output> =
+            vec![blake3::Output::new([0; 16], 0); 2 * number_of_leaves as usize]; // We don't subtract one because the tree is 1-indexed
         BinaryMerkleTree { tree }
     }
 
@@ -102,7 +61,7 @@ impl BinaryMerkleTree {
         index >> 1
     }
 
-    fn create_tree_from_leaves(&mut self, leaves: Vec<Hash>) {
+    fn create_tree_from_leaves(&mut self, leaves: Vec<blake3::Output>) {
         // Copy the leaves into the end of the tree
         let number_of_leaves = leaves.len();
         self.tree
@@ -122,8 +81,9 @@ impl BinaryMerkleTree {
         while hash_queue.len() > 1 {
             let (left_child, left_index) = hash_queue.pop_front().unwrap();
             let (right_child, _right_index) = hash_queue.pop_front().unwrap(); // There should always be another node in the queue
-            let parent_hash = hashv(&[&left_child.to_bytes(), &right_child.to_bytes()]);
             let parent_index = BinaryMerkleTree::get_parent_index(left_index);
+
+            let parent_hash = get_parent(&left_child, &right_child);
             self.tree[parent_index] = parent_hash;
             hash_queue.push_back((parent_hash, parent_index));
         }
@@ -132,13 +92,12 @@ impl BinaryMerkleTree {
     /// Update a leaf and propogate updates to all ancestors.
     /// Leaf index input is 0-indexed where the first leaf is index 0
     /// Leaf_index input should be 0-indexed where the first leaf would be entered as index 0
-    pub fn update_leaf(&mut self, leaf_index: usize, leaf_hash: Hash) {
+    pub fn update_leaf(&mut self, leaf_index: usize, leaf: blake3::Output) {
         let real_leaf_index = leaf_index + self.num_leaves();
-        if self.tree[real_leaf_index].to_bytes() == leaf_hash.to_bytes() {
-            println!("No change");
+        if self.tree[real_leaf_index].chaining_value() == leaf.chaining_value() {
             return;
         }
-        self.tree[real_leaf_index] = leaf_hash;
+        self.tree[real_leaf_index] = leaf;
 
         let mut current_index = real_leaf_index;
         while current_index > 1 {
@@ -150,7 +109,7 @@ impl BinaryMerkleTree {
             let left_node = &self.tree[left_node_index];
             let right_node = &self.tree[right_node_index];
 
-            let parent_hash = hashv(&[&left_node.to_bytes(), &right_node.to_bytes()]);
+            let parent_hash = get_parent(left_node, right_node);
             self.tree[parent_index] = parent_hash;
             current_index = parent_index;
         }
@@ -166,7 +125,7 @@ impl BinaryMerkleTree {
     ) -> Option<()>
     where
         I: Iterator<Item = usize>,
-        J: Iterator<Item = Hash>,
+        J: Iterator<Item = blake3::Output>,
     {
         // Check if sorted
         let leaf_offset = self.num_leaves();
@@ -209,8 +168,8 @@ impl BinaryMerkleTree {
             let left_node = self.tree[left_node_index];
             let right_node = self.tree[right_node_index];
 
-            let parent_hash = hashv(&[&left_node.to_bytes(), &right_node.to_bytes()]);
             let parent_index = BinaryMerkleTree::get_parent_index(current_index);
+            let parent_hash = get_parent(&left_node, &right_node);
             self.tree[parent_index] = parent_hash;
             update_queue.push_back(parent_index);
         }
@@ -249,27 +208,68 @@ impl BinaryMerkleTree {
     }
 }
 
-fn main() {
-    let leaves = vec![
-        hashv(&[&[b'A'; 32]]),
-        hashv(&[&[b'B'; 32]]),
-        hashv(&[&[b'C'; 32]]),
-        hashv(&[&[b'D'; 32]]),
-    ];
-    let mut tree = BinaryMerkleTree::new_from_leaves(leaves);
-    println!("{:?}", tree.root());
-    tree.update_leaf(0, hashv(&[&[b'X'; 32]]),);
-    println!("{:?}", tree.root());
+fn main() {}
 
-    let leaves = vec![
-        hashv(&[&[b'X'; 32]]),
-        hashv(&[&[b'B'; 32]]),
-        hashv(&[&[b'C'; 32]]),
-        hashv(&[&[b'D'; 32]]),
-    ];
-    let tree = BinaryMerkleTree::new_from_leaves(leaves);
-    println!("{:?}", tree.root());
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let b3hash = hashv(&[&[b'A'; 32], &[b'B'; 32], &[b'C'; 32], &[b'D'; 32]]);
-    println!("BLAKE3: {:?}", b3hash);
+    #[test]
+    fn test_update_leaf_correctness() {
+        let exp_leaves: Vec<blake3::Output> = vec![
+            blake3::Output::new(unsafe { std::mem::transmute([b'X'; 64]) }, 0),
+            blake3::Output::new(unsafe { std::mem::transmute([b'B'; 64]) }, 1),
+            blake3::Output::new(unsafe { std::mem::transmute([b'C'; 64]) }, 2),
+            blake3::Output::new(unsafe { std::mem::transmute([b'S'; 64]) }, 3),
+        ];
+        let exp_tree = BinaryMerkleTree::new_from_leaves(exp_leaves);
+
+        let act_leaves: Vec<blake3::Output> = vec![
+            blake3::Output::new(unsafe { std::mem::transmute([b'A'; 64]) }, 0),
+            blake3::Output::new(unsafe { std::mem::transmute([b'B'; 64]) }, 1),
+            blake3::Output::new(unsafe { std::mem::transmute([b'C'; 64]) }, 2),
+            blake3::Output::new(unsafe { std::mem::transmute([b'D'; 64]) }, 3),
+        ];
+        let mut act_tree = BinaryMerkleTree::new_from_leaves(act_leaves);
+
+        let index0: usize = 0;
+        act_tree.update_leaf(
+            index0,
+            blake3::Output::new(unsafe { std::mem::transmute([b'X'; 64]) }, index0 as u64),
+        );
+        let index3: usize = 3;
+        act_tree.update_leaf(
+            index3,
+            blake3::Output::new(unsafe { std::mem::transmute([b'S'; 64]) }, index3 as u64),
+        );
+
+        let mut exp_out = [0u8; 32];
+        let mut act_out = [0u8; 32];
+        exp_tree.root().root_output_bytes(&mut exp_out);
+        act_tree.root().root_output_bytes(&mut act_out);
+
+        assert_eq!(exp_out, act_out);
+    }
+
+    #[test]
+    fn test_blake3_correctness() {
+        let exp_leaves = &[[b'A'; 64], [b'B'; 64], [b'C'; 64], [b'D'; 64]].concat();
+
+        let mut b3hasher = blake3::Hasher::new();
+        b3hasher.update(&exp_leaves);
+        let mut exp_hash = [0u8; 32];
+        b3hasher.finalize(&mut exp_hash);
+
+        let act_leaves: Vec<blake3::Output> = vec![
+            blake3::Output::new(unsafe { std::mem::transmute([b'A'; 64]) }, 0),
+            blake3::Output::new(unsafe { std::mem::transmute([b'B'; 64]) }, 1),
+            blake3::Output::new(unsafe { std::mem::transmute([b'C'; 64]) }, 2),
+            blake3::Output::new(unsafe { std::mem::transmute([b'D'; 64]) }, 3),
+        ];
+        let act_tree = BinaryMerkleTree::new_from_leaves(act_leaves);
+
+        let mut act = [0u8; 32];
+        act_tree.root().root_output_bytes(&mut act);
+        assert_eq!(exp_hash, act);
+    }
 }
