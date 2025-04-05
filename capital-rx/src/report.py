@@ -92,6 +92,10 @@ def generate_partial_report(heap: list, year: int, count: int, type: str) -> str
 
     return header + NEWLINE + body
 
+# This would be more efficient as a dict of size count, where we only keep items that
+# are currently in the heap. However, due to the strict 2*count memory constraint, we
+# must do a linear search each time instead. As a result, this function call is O(count)
+# for each CSV row, instead of O(1).
 def in_heap(heap: list, item: str) -> bool:
     for e in heap:
         if e == item:
