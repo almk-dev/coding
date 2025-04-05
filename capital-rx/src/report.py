@@ -2,7 +2,6 @@ import csv
 import heapq
 from data import open_nadac_comparison_data_csv
 
-NEWLINE = '\n'
 FIELD_NAMES = [
     "ndc_desc",
     "ndc",
@@ -15,9 +14,9 @@ FIELD_NAMES = [
     "end_date",
     "effective_date",
 ]
-
 REPORT_TYPE_INCREASES = "increases"
 REPORT_TYPE_DECREASES = "decreases"
+NEWLINE = '\n'
 
 
 class ParsingError(Exception):
