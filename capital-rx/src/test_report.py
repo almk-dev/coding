@@ -10,10 +10,11 @@ def test_report():
     test_file_name = "top_10_2020.txt"
     test_file_full_path = TEST_DATA_DIR / test_file_name
     with open(test_file_full_path, 'rt') as file:
-        expected_lines = file.readlines()
+        expected_str = file.read()
+        expected_lines = expected_str.strip().split('\n')
 
     actual = report.generate_nadac_top_price_change_report(2020, 10)
-    actual_lines = actual.split('\n')
+    actual_lines = actual.strip().split('\n')
 
     assert len(expected_lines) == len(actual_lines)
     for i in range(len(expected_lines)):
