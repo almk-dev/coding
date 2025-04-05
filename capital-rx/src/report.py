@@ -16,6 +16,9 @@ FIELD_NAMES = [
     "effective_date",
 ]
 
+REPORT_TYPE_INCREASES = "increases"
+REPORT_TYPE_DECREASES = "decreases"
+
 
 class ParsingError(Exception):
     pass
@@ -36,17 +39,17 @@ def generate_nadac_top_price_change_report(year: int, count: int) -> str:
     """
     with open_nadac_comparison_data_csv() as file:
         reader = csv.DictReader(file, fieldnames=FIELD_NAMES)
-        min_heap, max_heap = build_heaps_from_file(reader, year, count)
+        increases_heap, decreases_heap = build_heaps_from_file(reader, year, count)
 
-    min_report = generate_min_report(min_heap, year, count)
-    max_report = generate_max_report(max_heap, year, count)
-    report = min_report + "\n" + max_report
+    increases_report = generate_partial_report(increases_heap, year, count, REPORT_TYPE_INCREASES)
+    decreases_report = generate_partial_report(decreases_heap, year, count, REPORT_TYPE_DECREASES)
+    report = increases_report + "\n" + decreases_report
 
     return report
 
 
 def build_heaps_from_file(reader: csv.DictReader, year: int, count: int) -> tuple:
-    min_heap, max_heap = [], []
+    increases_heap, decreases_heap = [], []
 
     for entry in reader:
         if not entry["effective_date"].endswith(str(year)):
@@ -55,25 +58,14 @@ def build_heaps_from_file(reader: csv.DictReader, year: int, count: int) -> tupl
             pass
             # print(entry)
 
-    return min_heap, max_heap
+    return increases_heap, decreases_heap
 
 
-def generate_min_report(min_heap: list, year: int, count: int) -> str:
-    header = f'Top {count} NADAC per unit price increases of {year}:'
+def generate_partial_report(heap: list, year: int, count: int, type: str) -> str:
+    header = f'Top {count} NADAC per unit price {type} of {year}:'
     
     body = ""
-    while len(min_heap) > 0:
-        item = heapq.heappop()
-        body += item + NEWLINE
-
-    return header + NEWLINE + body
-
-
-def generate_max_report(max_heap: list, year: int, count: int) -> str:
-    header = f'Top {count} NADAC per unit price increases of {year}:'
-
-    body = ""
-    while len(max_heap) > 0:
+    while len(heap) > 0:
         item = heapq.heappop()
         body += item + NEWLINE
 
