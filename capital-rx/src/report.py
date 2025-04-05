@@ -53,6 +53,8 @@ def build_heaps_from_file(reader: csv.DictReader, year: int, count: int) -> tupl
         change = float(entry["new_price"]) - float(entry["old_price"])
         if change > 0:
             item = (change, entry["ndc_desc"])
+            if in_heap(increases_heap, item):
+                continue # ignore exact duplicates
             if len(increases_heap) < count:
                 heapq.heappush(increases_heap, item)
             else:
@@ -61,6 +63,8 @@ def build_heaps_from_file(reader: csv.DictReader, year: int, count: int) -> tupl
                     heapq.heappushpop(increases_heap, item)
         if change < 0:
             item = (-change, entry["ndc_desc"])
+            if in_heap(decreases_heap, item):
+                continue # ignore exact duplicates
             if len(decreases_heap) < count:
                 heapq.heappush(decreases_heap, item)
             else:
@@ -87,3 +91,9 @@ def generate_partial_report(heap: list, year: int, count: int, type: str) -> str
     body = ''.join(body_lines[::-1])
 
     return header + NEWLINE + body
+
+def in_heap(heap: list, item: str) -> bool:
+    for e in heap:
+        if e == item:
+            return True
+    return False
