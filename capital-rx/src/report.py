@@ -19,10 +19,6 @@ REPORT_TYPE_DECREASES = "decreases"
 NEWLINE = '\n'
 
 
-class ParsingError(Exception):
-    pass
-
-
 def generate_nadac_top_price_change_report(year: int, count: int) -> str:
     """
     Return report content presenting the top ``count`` largest unique drug per unit price increases and decreases
@@ -44,7 +40,7 @@ def generate_nadac_top_price_change_report(year: int, count: int) -> str:
     decreases_report = generate_partial_report(decreases_heap, year, count, REPORT_TYPE_DECREASES)
     report = increases_report + "\n" + decreases_report
 
-    return report
+    return report.strip()
 
 
 def build_heaps_from_file(reader: csv.DictReader, year: int, count: int) -> tuple:

@@ -9,7 +9,7 @@ def test_report():
     """
     test_file_name = "top_10_2020.txt"
     test_file_full_path = TEST_DATA_DIR / test_file_name
-    with open(test_file_full_path) as file:
+    with open(test_file_full_path, 'rt') as file:
         expected_lines = file.readlines()
 
     actual = report.generate_nadac_top_price_change_report(2020, 10)
