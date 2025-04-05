@@ -1,6 +1,8 @@
 import csv
+import heapq
 from data import open_nadac_comparison_data_csv
 
+NEWLINE = '\n'
 FIELD_NAMES = [
     "ndc_desc",
     "ndc",
@@ -36,11 +38,10 @@ def generate_nadac_top_price_change_report(year: int, count: int) -> str:
         reader = csv.DictReader(file, fieldnames=FIELD_NAMES)
         min_heap, max_heap = build_heaps_from_file(reader, year, count)
 
-    min_report = generate_min_report(min_heap)
-    max_report = generate_max_report(max_heap)
+    min_report = generate_min_report(min_heap, year, count)
+    max_report = generate_max_report(max_heap, year, count)
     report = min_report + "\n" + max_report
 
-    print(report)
     return report
 
 
@@ -48,16 +49,32 @@ def build_heaps_from_file(reader: csv.DictReader, year: int, count: int) -> tupl
     min_heap, max_heap = [], []
 
     for entry in reader:
-        print(entry)
-        if entry["effective_date"] == "":
-            raise ParsingError("entry has no effective date")
+        if not entry["effective_date"].endswith(str(year)):
+            continue # skip rows with invalid (blank or wrong year) effective date
+        else:
+            pass
+            # print(entry)
 
     return min_heap, max_heap
 
 
-def generate_min_report(min_heap: list) -> str:
-    return ""
+def generate_min_report(min_heap: list, year: int, count: int) -> str:
+    header = f'Top {count} NADAC per unit price increases of {year}:'
+    
+    body = ""
+    while len(min_heap) > 0:
+        item = heapq.heappop()
+        body += item + NEWLINE
+
+    return header + NEWLINE + body
 
 
-def generate_max_report(max_heap: list) -> str:
-    return ""
+def generate_max_report(max_heap: list, year: int, count: int) -> str:
+    header = f'Top {count} NADAC per unit price increases of {year}:'
+
+    body = ""
+    while len(max_heap) > 0:
+        item = heapq.heappop()
+        body += item + NEWLINE
+
+    return header + NEWLINE + body
