@@ -53,9 +53,24 @@ def build_heaps_from_file(reader: csv.DictReader, year: int, count: int) -> tupl
     for entry in reader:
         if not entry["effective_date"].endswith(str(year)):
             continue # skip rows with invalid (blank or wrong year) effective date
-        else:
-            pass
-            # print(entry)
+
+        change = float(entry["new_price"]) - float(entry["old_price"])
+        if change > 0:
+            item = (change, entry["ndc_desc"])
+            if len(increases_heap) < count:
+                heapq.heappush(increases_heap, item)
+            else:
+                top_change, _ = increases_heap[0]
+                if change > top_change:
+                    heapq.heappushpop(increases_heap, item)
+        if change < 0:
+            item = (-change, entry["ndc_desc"])
+            if len(decreases_heap) < count:
+                heapq.heappush(decreases_heap, item)
+            else:
+                top_change, _ = decreases_heap[0]
+                if -change > top_change:
+                    heapq.heappushpop(decreases_heap, item)
 
     return increases_heap, decreases_heap
 
@@ -63,9 +78,16 @@ def build_heaps_from_file(reader: csv.DictReader, year: int, count: int) -> tupl
 def generate_partial_report(heap: list, year: int, count: int, type: str) -> str:
     header = f'Top {count} NADAC per unit price {type} of {year}:'
     
-    body = ""
+    sign = ""
+    if type == REPORT_TYPE_DECREASES:
+        sign = "-"
+
+    body_lines = []
     while len(heap) > 0:
-        item = heapq.heappop()
-        body += item + NEWLINE
+        change, ndc_desc = heapq.heappop(heap)
+        change = abs(round(change, 2))
+        line = f'{sign}${change:.2f}: {ndc_desc}' + NEWLINE
+        body_lines.append(line)
+    body = ''.join(body_lines[::-1])
 
     return header + NEWLINE + body
