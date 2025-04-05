@@ -6,6 +6,8 @@
 # testing
 /**/coverage
 /**/expected.txt
+/**/__pycache__
+/**/nadac-comparison-04-17-2024.csv
 
 # production
 /**/build
